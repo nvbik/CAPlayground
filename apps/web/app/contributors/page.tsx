@@ -23,7 +23,6 @@ async function getContributors(): Promise<GitHubContributor[]> {
     const response = await fetch(
       'https://api.github.com/repos/CAPlayground/CAPlayground/contributors',
       {
-        next: { revalidate: 3600 },
         headers: {
           'Accept': 'application/vnd.github.v3+json',
         },
