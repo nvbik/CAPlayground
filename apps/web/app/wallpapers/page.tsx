@@ -1,106 +1,12 @@
-import { Suspense } from "react"
-import type { Metadata } from "next"
+"use client"
+
+import { Suspense, useEffect, useState } from "react"
 import { Navigation } from "@/components/navigation"
 import { Footer } from "@/components/footer"
 import { WallpapersGrid } from "./WallpapersGrid"
 
 const WALLPAPERS_JSON_URL =
   "https://raw.githubusercontent.com/CAPlayground/wallpapers/refs/heads/main/wallpapers.json"
-
-// 30 min
-export const revalidate = 1800
-export const runtime = 'nodejs'
-
-export async function generateMetadata({
-  searchParams,
-}: {
-  searchParams: Promise<{ id?: string }>
-}): Promise<Metadata> {
-  const params = await searchParams
-  const wallpaperId = params.id
-
-  if (wallpaperId) {
-    try {
-      const wallpapersRes = await fetch(WALLPAPERS_JSON_URL, {
-        next: { revalidate },
-        headers: { Accept: "application/json" },
-      })
-
-      if (wallpapersRes.ok) {
-        const data = (await wallpapersRes.json()) as WallpapersResponse
-        const wallpaper = data.wallpapers.find(w => String(w.id) === wallpaperId)
-
-        if (wallpaper) {
-          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-          const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-          let downloads = 0
-
-          if (supabaseUrl && supabaseAnonKey) {
-            try {
-              const statsRes = await fetch(
-                `${supabaseUrl}/rest/v1/wallpaper_stats?id=eq.${wallpaperId}&select=downloads`,
-                {
-                  headers: {
-                    "apikey": supabaseAnonKey,
-                    "Authorization": `Bearer ${supabaseAnonKey}`,
-                  },
-                  cache: 'no-store',
-                }
-              )
-
-              if (statsRes.ok) {
-                const stats = await statsRes.json()
-                if (stats && stats.length > 0) {
-                  downloads = stats[0].downloads || 0
-                }
-              }
-            } catch (err) {
-              console.error('Failed to fetch download stats for metadata:', err)
-            }
-          }
-
-          const downloadText = downloads === 1 ? '1 download' : `${downloads} downloads`
-          const description = `${downloadText} • by ${wallpaper.creator}`
-          const previewUrl = `${data.base_url}${wallpaper.preview}`
-
-          return {
-            title: `CAPlayground Community - ${wallpaper.name}`,
-            description,
-            openGraph: {
-              title: `CAPlayground Community - ${wallpaper.name}`,
-              description,
-              type: "website",
-              images: [
-                {
-                  url: previewUrl,
-                  alt: `${wallpaper.name} preview`,
-                },
-              ],
-            },
-            twitter: {
-              card: "summary_large_image",
-              title: `CAPlayground Community - ${wallpaper.name}`,
-              description,
-              images: [previewUrl],
-            },
-          }
-        }
-      }
-    } catch (err) {
-      console.error('Failed to generate wallpaper metadata:', err)
-    }
-  }
-
-  return {
-    title: "CAPlayground - Wallpapers",
-    description: "Browse wallpapers made by the CAPlayground community",
-    openGraph: {
-      title: "CAPlayground - Wallpapers",
-      description: "Browse wallpapers made by the CAPlayground community",
-      type: "website",
-    },
-  }
-}
 
 interface WallpaperItem {
   id: string | number
@@ -109,6 +15,7 @@ interface WallpaperItem {
   description: string
   file: string
   preview: string
+  date: number
   from: string
 }
 
@@ -117,30 +24,27 @@ interface WallpapersResponse {
   wallpapers: WallpaperItem[]
 }
 
-async function getWallpapers(): Promise<WallpapersResponse | null> {
-  try {
-    const res = await fetch(WALLPAPERS_JSON_URL, {
-      next: { revalidate },
-      headers: { Accept: "application/json" },
-    })
-    if (!res.ok) return null
-    const data = (await res.json()) as WallpapersResponse
-    if (!data || !Array.isArray(data.wallpapers) || typeof data.base_url !== "string") {
-      return null
+export default function WallpapersPage() {
+  const [data, setData] = useState<WallpapersResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let active = true
+    fetch(WALLPAPERS_JSON_URL, { headers: { Accept: "application/json" } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: WallpapersResponse | null) => {
+        if (active && json && Array.isArray(json.wallpapers) && typeof json.base_url === "string") {
+          setData(json)
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
     }
-    return data
-  } catch {
-    return null
-  }
-}
-
-function isVideo(src: string) {
-  const lower = src.toLowerCase()
-  return lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.includes("/video/")
-}
-
-export default async function WallpapersPage() {
-  const data = await getWallpapers()
+  }, [])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -157,7 +61,13 @@ export default async function WallpapersPage() {
                 </p>
               </div>
 
-              {!data && (
+              {loading && (
+                <div className="max-w-xl mx-auto text-center text-sm text-muted-foreground">
+                  Loading wallpapers...
+                </div>
+              )}
+
+              {!loading && !data && (
                 <div className="max-w-xl mx-auto text-center text-sm text-muted-foreground">
                   Unable to load wallpapers right now. Please try again later.
                 </div>
